@@ -11,7 +11,7 @@ BIN = xmouseless
 
 all: $(BIN)
 
-$(BIN): $(SRC) config.h
+$(BIN): $(SRC) config.h xmouseless.h
 	$(CC) $(CFLAGS) -o $(BIN) $(SRC) $(LDFLAGS)
 
 clean:

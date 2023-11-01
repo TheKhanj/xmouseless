@@ -47,10 +47,10 @@ static ClickBinding click_bindings[] = {
 /* scrolls up, down, left and right
  * a higher value scrolls faster */
 static ScrollBinding scroll_bindings[] = {
-		// {XK_j, 0, 25},
-		// {XK_k, 0, -25},
-		// {XK_h, -25, 0},
-		// {XK_l, 25, 0},
+		{XK_n, 0, 25},
+		{XK_p, 0, -25},
+		{XK_i, -25, 0},
+		{XK_o, 25, 0},
 };
 
 /* executes shell commands */

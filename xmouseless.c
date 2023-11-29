@@ -43,7 +43,7 @@ void click_full(unsigned int button);
 void scroll(float x, float y);
 void handle_key(KeyCode keycode, Bool is_press);
 void init_x();
-void close_x();
+void close_x(int exit_code);
 
 void get_pointer() {
 	int x, y;

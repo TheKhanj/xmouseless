@@ -5,6 +5,13 @@
 
 #define LENGTH(X) (sizeof X / sizeof X[0])
 
+typedef enum { NormalMode = 0, ScrollMode, ModesLength } Mode;
+
+typedef struct {
+	KeySym keysym;
+	bool sticky;
+} ModeModifier;
+
 typedef struct {
 	KeySym keysym;
 	float x;

@@ -1,4 +1,5 @@
 /* xmouseless */
+#include <X11/X.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,20 +22,26 @@ Cursor scroll_cursor;
 pthread_t movethread;
 
 static unsigned int speed;
+static Mode last_mode;
 
 struct {
 	float x;
 	float y;
 	float speed_x;
 	float speed_y;
-} mouseinfo;
+} mouse_info;
 
 struct {
 	float x;
 	float y;
 	float speed_x;
 	float speed_y;
-} scrollinfo;
+} scroll_info;
+
+struct {
+	float x;
+	float y;
+} scroll_mode_mouse_info;
 
 void get_pointer();
 void move_relative(float x, float y);
@@ -51,14 +58,15 @@ void get_pointer() {
 	unsigned int dui;
 	Window dummy;
 	XQueryPointer(dpy, root, &dummy, &dummy, &x, &y, &di, &di, &dui);
-	mouseinfo.x = x;
-	mouseinfo.y = y;
+	mouse_info.x = x;
+	mouse_info.y = y;
 }
 
 void move_relative(float x, float y) {
-	mouseinfo.x += x;
-	mouseinfo.y += y;
-	XWarpPointer(dpy, None, root, 0, 0, 0, 0, (int)mouseinfo.x, (int)mouseinfo.y);
+	mouse_info.x += x;
+	mouse_info.y += y;
+	XWarpPointer(dpy, None, root, 0, 0, 0, 0, (int)mouse_info.x,
+							 (int)mouse_info.y);
 	XFlush(dpy);
 }
 
@@ -73,32 +81,39 @@ void click_full(unsigned int button) {
 	XFlush(dpy);
 }
 
+bool in_range(float x) { return -0.5 < x && x < 0.5; }
+
+bool is_scrolling_speed_epsilon() {
+	return in_range(scroll_info.speed_x / move_rate * 4) &&
+				 in_range(scroll_info.speed_y / move_rate * 4);
+}
+
 void scroll(float x, float y) {
 	Window focused;
 	int revert_to;
 	XGetInputFocus(dpy, &focused, &revert_to);
 	XDefineCursor(dpy, focused, scroll_cursor);
 
-	scrollinfo.x += x;
-	scrollinfo.y += y;
-	while (scrollinfo.y <= -0.51) {
-		scrollinfo.y += 1;
+	scroll_info.x += x;
+	scroll_info.y += y;
+	while (scroll_info.y <= -0.51) {
+		scroll_info.y += 1;
 		click_full(4);
 	}
-	while (scrollinfo.y >= 0.51) {
-		scrollinfo.y -= 1;
+	while (scroll_info.y >= 0.51) {
+		scroll_info.y -= 1;
 		click_full(5);
 	}
-	while (scrollinfo.x <= -0.51) {
-		scrollinfo.x += 1;
+	while (scroll_info.x <= -0.51) {
+		scroll_info.x += 1;
 		click_full(6);
 	}
-	while (scrollinfo.x >= 0.51) {
-		scrollinfo.x -= 1;
+	while (scroll_info.x >= 0.51) {
+		scroll_info.x -= 1;
 		click_full(7);
 	}
 
-	if (scrollinfo.speed_x == 0 && scrollinfo.speed_y == 0) {
+	if (is_scrolling_speed_epsilon()) {
 		XUndefineCursor(dpy, focused);
 	}
 }
@@ -143,31 +158,28 @@ void *move_forever(void *val) {
 	/* this function is executed in a seperate thread */
 	while (1) {
 		/* move mouse? */
-		if (mouseinfo.speed_x != 0 || mouseinfo.speed_y != 0) {
-			move_relative((float)mouseinfo.speed_x * speed / move_rate,
-										(float)mouseinfo.speed_y * speed / move_rate);
+		if (mouse_info.speed_x != 0 || mouse_info.speed_y != 0) {
+			move_relative((float)mouse_info.speed_x * speed / move_rate,
+										(float)mouse_info.speed_y * speed / move_rate);
 		}
 		/* scroll? */
-		if (scrollinfo.speed_x != 0 || scrollinfo.speed_y != 0) {
-			scroll((float)scrollinfo.speed_x / move_rate,
-						 (float)scrollinfo.speed_y / move_rate);
+		if (!is_scrolling_speed_epsilon()) {
+			scroll((float)scroll_info.speed_x / move_rate,
+						 (float)scroll_info.speed_y / move_rate);
 		}
 		usleep(1000000 / move_rate);
 	}
 }
 
-void handle_key(KeyCode keycode, Bool is_press) {
+void handle_normal_mode_key(KeySym keysym, Bool is_press) {
 	unsigned int i;
-	KeySym keysym;
-
-	keysym = XkbKeycodeToKeysym(dpy, keycode, 0, 0);
 
 	/* move bindings */
 	for (i = 0; i < LENGTH(move_bindings); i++) {
 		if (move_bindings[i].keysym == keysym) {
 			int sign = is_press ? 1 : -1;
-			mouseinfo.speed_x += sign * move_bindings[i].x;
-			mouseinfo.speed_y += sign * move_bindings[i].y;
+			mouse_info.speed_x += sign * move_bindings[i].x;
+			mouse_info.speed_y += sign * move_bindings[i].y;
 		}
 	}
 
@@ -191,20 +203,8 @@ void handle_key(KeyCode keycode, Bool is_press) {
 	for (i = 0; i < LENGTH(scroll_bindings); i++) {
 		if (scroll_bindings[i].keysym == keysym) {
 			int sign = is_press ? 1 : -1;
-			scrollinfo.speed_x += sign * scroll_bindings[i].x;
-			scrollinfo.speed_y += sign * scroll_bindings[i].y;
-
-			/* scroll once, workaround for scrolling not working the first time */
-			int scroll_x = 0, scroll_y = 0;
-			if (scrollinfo.speed_x < 0)
-				scroll_x = -1;
-			if (scrollinfo.speed_x > 0)
-				scroll_x = 1;
-			if (scrollinfo.speed_y < 0)
-				scroll_y = -1;
-			if (scrollinfo.speed_y > 0)
-				scroll_y = 1;
-			scroll(scroll_x, scroll_y);
+			scroll_info.speed_x += sign * scroll_bindings[i].x;
+			scroll_info.speed_y += sign * scroll_bindings[i].y;
 		}
 	}
 
@@ -230,6 +230,64 @@ void handle_key(KeyCode keycode, Bool is_press) {
 	}
 }
 
+void handle_scroll_mode_key(KeySym keysym, Bool is_press) {
+	unsigned int i;
+
+	for (i = 0; i < LENGTH(move_bindings); i++) {
+		if (move_bindings[i].keysym == keysym) {
+			if (is_press) {
+				scroll_mode_mouse_info.x += move_bindings[i].x * move_rate / 8;
+				scroll_mode_mouse_info.y += move_bindings[i].y * move_rate / 8;
+				printf("scroll mode speed x: %f, y: %f\n", scroll_mode_mouse_info.x,
+							 scroll_mode_mouse_info.y);
+			}
+		}
+	}
+
+	scroll_info.speed_x = scroll_mode_mouse_info.x;
+	scroll_info.speed_y = scroll_mode_mouse_info.y;
+}
+
+void switch_mode_if_necessary(KeySym keysym, Bool is_press) {
+	for (int new_mode = 0; new_mode < LENGTH(mode_modifiers); new_mode++) {
+		const ModeModifier *modif = mode_modifiers + new_mode;
+		if (modif->keysym != keysym)
+			continue;
+		if (modif->sticky) {
+			if (is_press) {
+				last_mode = mode;
+				mode = new_mode;
+			} else
+				mode = last_mode;
+
+		} else
+			mode = new_mode;
+	}
+
+	if (keysym == mode_modifiers[ScrollMode].keysym && !is_press) {
+		scroll_info.speed_x = 0;
+		scroll_info.speed_y = 0;
+		scroll_mode_mouse_info.x = 0;
+		scroll_mode_mouse_info.y = 0;
+		Window focused;
+		int revert_to;
+		XGetInputFocus(dpy, &focused, &revert_to);
+		XUndefineCursor(dpy, focused);
+	}
+}
+
+void handle_key(KeyCode keycode, Bool is_press) {
+	KeySym keysym;
+	keysym = XkbKeycodeToKeysym(dpy, keycode, 0, 0);
+	switch_mode_if_necessary(keysym, is_press);
+
+	if (mode == NormalMode) {
+		handle_normal_mode_key(keysym, is_press);
+	} else if (mode == ScrollMode) {
+		handle_scroll_mode_key(keysym, is_press);
+	}
+}
+
 int main() {
 	char keys_return[32];
 	int rc;
@@ -238,14 +296,18 @@ int main() {
 	init_x();
 
 	get_pointer();
-	mouseinfo.speed_x = 0;
-	mouseinfo.speed_y = 0;
+	mouse_info.speed_x = 0;
+	mouse_info.speed_y = 0;
 	speed = default_speed;
+	last_mode = mode;
 
-	scrollinfo.x = 0;
-	scrollinfo.y = 0;
-	scrollinfo.speed_x = 0;
-	scrollinfo.speed_y = 0;
+	scroll_info.x = 0;
+	scroll_info.y = 0;
+	scroll_info.speed_x = 0;
+	scroll_info.speed_y = 0;
+
+	scroll_mode_mouse_info.x = 0;
+	scroll_mode_mouse_info.y = 0;
 
 	/* start the thread for mouse movement and scrolling */
 	rc = pthread_create(&movethread, NULL, &move_forever, NULL);

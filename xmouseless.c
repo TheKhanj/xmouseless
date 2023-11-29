@@ -1,6 +1,4 @@
-/*
- * xmouseless
- */
+/* xmouseless */
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,15 +7,17 @@
 #include <X11/XKBlib.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/cursorfont.h>
 #include <X11/extensions/XTest.h>
 
 #define LENGTH(X) (sizeof X / sizeof X[0])
 
-#include "xmouseless.h"
 #include "config.h"
+#include "xmouseless.h"
 
 Display *dpy;
 Window root;
+Cursor scroll_cursor;
 pthread_t movethread;
 
 static unsigned int speed;
@@ -74,6 +74,11 @@ void click_full(unsigned int button) {
 }
 
 void scroll(float x, float y) {
+	Window focused;
+	int revert_to;
+	XGetInputFocus(dpy, &focused, &revert_to);
+	XDefineCursor(dpy, focused, scroll_cursor);
+
 	scrollinfo.x += x;
 	scrollinfo.y += y;
 	while (scrollinfo.y <= -0.51) {
@@ -92,6 +97,10 @@ void scroll(float x, float y) {
 		scrollinfo.x -= 1;
 		click_full(7);
 	}
+
+	if (scrollinfo.speed_x == 0 && scrollinfo.speed_y == 0) {
+		XUndefineCursor(dpy, focused);
+	}
 }
 
 void init_x() {
@@ -104,6 +113,7 @@ void init_x() {
 	dpy = XOpenDisplay((char *)0);
 	screen = DefaultScreen(dpy);
 	root = RootWindow(dpy, screen);
+	scroll_cursor = XCreateFontCursor(dpy, XC_fleur);
 
 	/* turn auto key repeat off */
 	XAutoRepeatOff(dpy);
@@ -243,7 +253,6 @@ int main() {
 		printf("Unable to start thread.\n");
 		return EXIT_FAILURE;
 	}
-
 	/* get the initial state of all keys */
 	XQueryKeymap(dpy, keys_return);
 	for (i = 0; i < 32; i++) {
